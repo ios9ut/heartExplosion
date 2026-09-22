@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vụ nổ tia sét - Trái tim thiên hà</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #000;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            height: 100vh;
+            width: 100vw;
+        }
+        canvas {
+            display: block;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+            background: radial-gradient(circle at 50% 50%, #0a0a1a, #000000);
+        }
+        /* Không cần nút HTML, vẽ trực tiếp trên canvas */
+    </style>
+</head>
+<body>
+    <canvas id="canvas"></canvas>
+    <script>
+        (function() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Tối ưu: giảm số lượng hạt để giảm lag
+            const STAR_COUNT = 180;          // số ngôi sao nền
+            const HEART_PARTICLE_COUNT = 200; // số hạt tạo trái tim
+            const EXPLOSION_PARTICLES = 180;  // số tia sét
+            const MAX_LIFE = 1.5;            // 1.5 giây cho giai đoạn nổ
+
+            let width, height;
+            let stars = [];
+            let button = {
+                x: 0, y: 0,
+                radius: 70,
+                visible: true
+            };
+
+            // Trạng thái animation
+            let state = 'idle'; // 'idle', 'exploding', 'forming', 'heart'
+            let explosionParticles = [];
+            let heartParticles = [];
+            let startTime = 0;
+            let heartFormationProgress = 0; // 0 -> 1
+            let nameAlpha = 0;              // fade cho tên
+            let nameDirection = 1;          // 1: tăng, -1: giảm
+
+            // Tên người (có thể thay đổi)
+            const NAME = "TÊN NGƯỜI"; // <-- Thay tên bạn muốn ở đây
+
+            // Màu sắc cho tia sét (nhiều màu)
+            const COLORS = [
+                '#ff3366', '#ff9933', '#33ffcc', '#33aaff', '#cc33ff', 
+                '#ff33cc', '#ffff33', '#33ff66', '#ff6633', '#66ccff'
+            ];
+
+            // Resize canvas
+            function resize() {
+                width = window.innerWidth;
+                height = window.innerHeight;
+                canvas.width = width;
+                canvas.height = height;
+                button.x = width / 2;
+                button.y = height / 2;
+                initStars();
+            }
+
+            // Khởi tạo sao nền
+            function initStars() {
+                stars = [];
+                for (let i = 0; i < STAR_COUNT; i++) {
+                    stars.push({
+                        x: Math.random() * width,
+                        y: Math.random() * height,
+                        r: Math.random() * 1.5 + 0.5,
+                        brightness: Math.random() * 0.7 + 0.3,
+                        twinkleSpeed: Math.random() * 0.02 + 0.005,
+                        phase: Math.random() * Math.PI * 2
+                    });
+                }
+            }
+
+            // Vẽ nền sao
+            function drawStars() {
+                // Nền gradient vũ trụ
+                const grad = ctx.createRadialGradient(width/2, height/2, 0, width/2, height/2, Math.max(width, height)/1.5);
+                grad.addColorStop(0, '#0a0a1a');
+                grad.addColorStop(0.6, '#050510');
+                grad.addColorStop(1, '#000000');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, width, height);
+
+                // Vẽ sao
+                stars.forEach(star => {
+                    // Nhấp nháy nhẹ
+                    star.phase += star.twinkleSpeed;
+                    const twinkle = Math.sin(star.phase) * 0.2 + 0.8;
+                    const alpha = star.brightness * twinkle;
+                    
+                    ctx.beginPath();
+                    ctx.arc(star.x, star.y, star.r, 0, Math.PI * 2);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.fill();
+                    
+                    // Thêm chút màu cho sao sáng
+                    if (star.r > 1.2) {
+                        ctx.beginPath();
+                        ctx.arc(star.x, star.y, star.r * 1.8, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(180, 200, 255, ${alpha * 0.15})`;
+                        ctx.fill();
+                    }
+                });
+            }
+
+            // Vẽ nút bấm (hình tròn phát sáng)
+            function drawButton() {
+                if (!button.visible) return;
+                
+                // Hào quang
+                const glowGrad = ctx.createRadialGradient(button.x, button.y, button.radius * 0.5, button.x, button.y, button.radius * 1.8);
+                glowGrad.addColorStop(0, 'rgba(100, 180, 255, 0.8)');
+                glowGrad.addColorStop(0.5, 'rgba(80, 120, 255, 0.4)');
+                glowGrad.addColorStop(1, 'rgba(50, 80, 200, 0)');
+                ctx.beginPath();
+                ctx.arc(button.x, button.y, button.radius * 1.8, 0, Math.PI * 2);
+                ctx.fillStyle = glowGrad;
+                ctx.fill();
+
+                // Vòng tròn chính
+                ctx.beginPath();
+                ctx.arc(button.x, button.y, button.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(30, 40, 80, 0.9)';
+                ctx.fill();
+                
+                // Viền sáng
+                ctx.beginPath();
+                ctx.arc(button.x, button.y, button.radius, 0, Math.PI * 2);
+                ctx.strokeStyle = '#66ccff';
+                ctx.lineWidth = 4;
+                ctx.shadowColor = '#66ccff';
+                ctx.shadowBlur = 25;
+                ctx.stroke();
+                ctx.shadowBlur = 0;
+
+                // Chữ "BẤM"
+                ctx.font = 'bold 24px Arial';
+                ctx.fillStyle = '#ffffff';
+                ctx.shadowColor = '#66ccff';
+                ctx.shadowBlur = 15;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('BẤM', button.x, button.y);
+                ctx.shadowBlur = 0;
+            }
+
+            // Tạo vụ nổ tia sét
+            function createExplosion() {
+                explosionParticles = [];
+                const cx = button.x;
+                const cy = button.y;
+                
+                for (let i = 0; i < EXPLOSION_PARTICLES; i++) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const speed = Math.random() * 8 + 4; // tốc độ
+                    const color = COLORS[Math.floor(Math.random() * COLORS.length)];
+                    
+                    // Mỗi tia sét gồm nhiều đoạn thẳng
+                    const segments = Math.floor(Math.random() * 3) + 2; // 2-4 đoạn
+                    const points = [];
+                    let px = cx;
+                    let py = cy;
+                    const dirX = Math.cos(angle);
+                    const dirY = Math.sin(angle);
+                    const length = Math.random() * 80 + 40; // độ dài tia
+                    
+                    for (let s = 0; s <= segments; s++) {
+                        const t = s / segments;
+                        const offsetX = (Math.random() - 0.5) * 40; // độ lệch ngẫu nhiên
+                        const offsetY = (Math.random() - 0.5) * 40;
+                        points.push({
+                            x: cx + dirX * length * t + offsetX * (1 - t),
+                            y: cy + dirY * length * t + offsetY * (1 - t)
+                        });
+                    }
+                    
+                    explosionParticles.push({
+                        points: points,
+                        color: color,
+                        life: 1.0,
+                        speed: speed,
+                        angle: angle,
+                        vx: Math.cos(angle) * speed,
+                        vy: Math.sin(angle) * speed,
+                        width: Math.random() * 2 + 1.5,
+                        // Thêm thuộc tính để di chuyển toàn bộ tia
+                        offsetX: 0,
+                        offsetY: 0
+                    });
+                }
+                
+                state = 'exploding';
+                startTime = performance.now() / 1000;
+                button.visible = false;
+            }
+
+            // Cập nhật và vẽ vụ nổ tia sét
+            function updateExplosion(dt) {
+                const elapsed = performance.now() / 1000 - startTime;
+                
+                // Sau 1.5s chuyển sang giai đoạn tạo trái tim
+                if (elapsed >= MAX_LIFE) {
+                    state = 'forming';
+                    heartFormationProgress = 0;
+                    initHeartParticles();
+                    return;
+                }
+                
+                // Vẽ các tia sét
+                explosionParticles.forEach(p => {
+                    // Di chuyển tia ra xa dần
+                    p.offsetX += p.vx * dt * 3;
+                    p.offsetY += p.vy * dt * 3;
+                    
+                    // Giảm dần độ sáng
+                    p.life = 1.0 - (elapsed / MAX_LIFE) * 0.7; // giữ lại chút ánh sáng
+                    
+                    ctx.beginPath();
+                    ctx.strokeStyle = p.color;
+                    ctx.lineWidth = p.width;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 15;
+                    ctx.globalAlpha = p.life;
+                    
+                    // Vẽ các đoạn thẳng
+                    const pts = p.points;
+                    ctx.moveTo(pts[0].x + p.offsetX, pts[0].y + p.offsetY);
+                    for (let i = 1; i < pts.length; i++) {
+                        ctx.lineTo(pts[i].x + p.offsetX, pts[i].y + p.offsetY);
+                    }
+                    ctx.stroke();
+                    
+                    // Vẽ thêm tia phụ (nhánh) cho sinh động
+                    if (Math.random() > 0.7 && pts.length > 2) {
+                        ctx.beginPath();
+                        const mid = Math.floor(pts.length / 2);
+                        ctx.moveTo(pts[mid].x + p.offsetX, pts[mid].y + p.offsetY);
+                        ctx.lineTo(
+                            pts[mid].x + p.offsetX + (Math.random() - 0.5) * 30,
+                            pts[mid].y + p.offsetY + (Math.random() - 0.5) * 30
+                        );
+                        ctx.strokeStyle = p.color;
+                        ctx.lineWidth = p.width * 0.6;
+                        ctx.stroke();
+                    }
+                });
+                
+                ctx.globalAlpha = 1.0;
+                ctx.shadowBlur = 0;
+            }
+
+            // Khởi tạo các hạt cho trái tim (dựa trên công thức hình trái tim)
+            function initHeartParticles() {
+                heartParticles = [];
+                const cx = width / 2;
+                const cy = height / 2;
+                // Kích thước trái tim (đủ lớn để chứa tên)
+                const scale = Math.min(width, height) * 0.012; 
+                
+                for (let i = 0; i < HEART_PARTICLE_COUNT; i++) {
+                    // Công thức tham số hình trái tim
+                    const t = Math.PI * 2 * (i / HEART_PARTICLE_COUNT);
+                    // Điều chỉnh để trái tim đẹp hơn
+                    const x = 16 * Math.pow(Math.sin(t), 3);
+                    const y = 13 * Math.cos(t) - 5 * Math.cos(2*t) - 2 * Math.cos(3*t) - Math.cos(4*t);
+                    
+                    // Thêm chút ngẫu nhiên để tự nhiên
+                    const jitterX = (Math.random() - 0.5) * 0.8;
+                    const jitterY = (Math.random() - 0.5) * 0.8;
+                    
+                    // Vị trí đích
+                    const targetX = cx + (x + jitterX) * scale;
+                    const targetY = cy - (y + jitterY) * scale; // trừ vì y ngược
+                    
+                    // Vị trí bắt đầu: từ tâm hoặc từ các tia nổ (ngẫu nhiên)
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = Math.random() * 200 + 100;
+                    const startX = cx + Math.cos(angle) * dist;
+                    const startY = cy + Math.sin(angle) * dist;
+                    
+                    heartParticles.push({
+                        startX: startX,
+                        startY: startY,
+                        targetX: targetX,
+                        targetY: targetY,
+                        x: startX,
+                        y: startY,
+                        size: Math.random() * 3 + 2,
+                        color: COLORS[Math.floor(Math.random() * COLORS.length)],
+                        delay: Math.random() * 0.3, // delay nhỏ
+                        progress: 0
+                    });
+                }
+            }
+
+            // Cập nhật và vẽ quá trình tạo trái tim
+            function updateFormation(dt) {
+                heartFormationProgress += dt * 0.6; // tốc độ tạo hình
+                if (heartFormationProgress >= 1) {
+                    heartFormationProgress = 1;
+                    state = 'heart';
+                }
+                
+                const cx = width / 2;
+                const cy = height / 2;
+                
+                // Vẽ các hạt đang di chuyển về trái tim
+                heartParticles.forEach(p => {
+                    // Tính progress riêng cho từng hạt (có delay)
+                    const localProgress = Math.min(1, Math.max(0, (heartFormationProgress - p.delay) / (1 - p.delay)));
+                    // Easing
+                    const eased = 1 - Math.pow(1 - localProgress, 3);
+                    
+                    p.x = p.startX + (p.targetX - p.startX) * eased;
+                    p.y = p.startY + (p.targetY - p.startY) * eased;
+                    
+                    // Vẽ hạt
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 12;
+                    ctx.fill();
+                    
+                    // Thêm chút lấp lánh
+                    if (p.size > 2.5) {
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.size * 1.8, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255,255,255,0.15)`;
+                        ctx.fill();
+                    }
+                });
+                
+                ctx.shadowBlur = 0;
+            }
+
+            // Vẽ trái tim hoàn chỉnh và tên nhấp nháy
+            function updateHeart(dt) {
+                const cx = width / 2;
+                const cy = height / 2;
+                
+                // Vẽ lại các hạt ở vị trí đích (có thể thêm hiệu ứng lung linh)
+                heartParticles.forEach(p => {
+                    // Nhấp nháy nhẹ
+                    const flicker = Math.sin(performance.now() * 0.005 + p.targetX) * 0.3 + 0.7;
+                    
+                    ctx.beginPath();
+                    ctx.arc(p.targetX, p.targetY, p.size * (0.9 + flicker * 0.2), 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 15;
+                    ctx.fill();
+                    
+                    // Hạt sáng
+                    if (Math.random() > 0.9) {
+                        ctx.beginPath();
+                        ctx.arc(p.targetX, p.targetY, p.size * 2, 0, Math.PI * 2);
+                        ctx.fillStyle = `rgba(255,255,255,0.2)`;
+                        ctx.fill();
+                    }
+                });
+                
+                ctx.shadowBlur = 0;
+                
+                // Fade in/out cho tên
+                nameAlpha += nameDirection * dt * 1.2;
+                if (nameAlpha >= 1) {
+                    nameAlpha = 1;
+                    nameDirection = -1;
+                } else if (nameAlpha <= 0.2) {
+                    nameAlpha = 0.2;
+                    nameDirection = 1;
+                }
+                
+                // Vẽ tên với gradient thiên hà
+                const gradient = ctx.createLinearGradient(
+                    cx - 200, cy - 50, cx + 200, cy + 50
+                );
+                gradient.addColorStop(0, '#aaccff');
+                gradient.addColorStop(0.3, '#ff88cc');
+                gradient.addColorStop(0.6, '#88aaff');
+                gradient.addColorStop(1, '#cc88ff');
+                
+                ctx.font = 'bold 48px "Arial", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.shadowColor = '#aa88ff';
+                ctx.shadowBlur = 30;
+                ctx.globalAlpha = nameAlpha;
+                ctx.fillStyle = gradient;
+                ctx.fillText(NAME, cx, cy + 10);
+                
+                // Thêm hiệu ứng lấp lánh cho chữ
+                ctx.shadowBlur = 50;
+                ctx.globalAlpha = nameAlpha * 0.4;
+                ctx.fillStyle = '#ffffff';
+                ctx.fillText(NAME, cx, cy + 10);
+                
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+            }
+
+            // Vòng lặp chính
+            let lastTime = performance.now() / 1000;
+            
+            function animate() {
+                const now = performance.now() / 1000;
+                const dt = Math.min(now - lastTime, 0.05); // giới hạn dt để tránh lag
+                lastTime = now;
+                
+                // Xóa canvas
+                ctx.clearRect(0, 0, width, height);
+                
+                // Luôn vẽ nền sao
+                drawStars();
+                
+                // Xử lý theo trạng thái
+                if (state === 'idle') {
+                    drawButton();
+                } else if (state === 'exploding') {
+                    updateExplosion(dt);
+                } else if (state === 'forming') {
+                    updateFormation(dt);
+                } else if (state === 'heart') {
+                    updateHeart(dt);
+                }
+                
+                requestAnimationFrame(animate);
+            }
+
+            // Bắt sự kiện click
+            canvas.addEventListener('click', (e) => {
+                if (state !== 'idle') return;
+                
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Kiểm tra click vào nút
+                const dx = mouseX - button.x;
+                const dy = mouseY - button.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist <= button.radius && button.visible) {
+                    createExplosion();
+                }
+            });
+
+            // Khởi tạo
+            window.addEventListener('resize', resize);
+            resize();
+            animate();
+        })();
+    </script>
+</body>
+</html>
